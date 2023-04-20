@@ -1,8 +1,9 @@
 import os
 import re
+import time
+from threading import Thread
 from revChatGPT.V3 import Chatbot
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from slack_sdk import WebClient
 from slack_bolt import App
 from dotenv import load_dotenv
 
@@ -13,7 +14,6 @@ SLACK_APP_TOKEN = os.getenv('SLACK_APP_TOKEN')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 app = App(token=SLACK_BOT_TOKEN)
-client = WebClient(token=SLACK_BOT_TOKEN)
 
 ChatGPTConfig = {
   "api_key": OPENAI_API_KEY
@@ -25,29 +25,44 @@ if os.getenv("OPENAI_ENGINE"):
 chatbot = Chatbot(**ChatGPTConfig)
 
 @app.event("app_mention")
-def handle_message_events(body, logger):
+def event_test(event, say):
+  prompt = re.sub('\\s<@[^, ]*|^<@[^, ]*', '', event["text"])
+  user = event["user"]
   # Log message
-  print(str(body["event"]["text"]).split(">")[1])
+  print("app_mention:", f"@{user} {prompt}")
 
-  client.chat_postMessage(
-    channel=body["event"]["channel"],
-    thread_ts=body["event"]["event_ts"],
-    text=f":sunglasses: Hello from Drape Fit ChatGPT Bot!\nThanks for request. I'm on it. :hourglass:\n"
-  )
-  # Create prompt for ChatGPT
-  prompt = re.sub('\\s<@[^, ]*|^<@[^, ]*', '', body["event"]["text"])
   try:
     response = chatbot.ask(prompt)
+    sendmsg = f"<@{user}> {response}"
   except Exception as e:
     print(e)
-    response = f":hot_face: We're experiencing exceptionally high demand. Please try again.\n"
-  
-  # Reply to thread
-  client.chat_postMessage(
-    channel=body["event"]["channel"],
-    thread_ts=body["event"]["event_ts"],
-    text=f":computer: Here you go:\n\n{response}"
-  )
+    sendmsg = f":hot_face: We're experiencing exceptionally high demand. Please try again."
+
+  # Send a reply
+  say(sendmsg)
+
+@app.event("message")
+def event_test(event, say):
+  prompt = re.sub('\\s<@[^, ]*|^<@[^, ]*', '', event["text"])
+  if (prompt == event["text"]):
+    # Log message
+    print("message:", event["text"])
+
+    try:
+      response = chatbot.ask(prompt)
+      sendmsg = f"{response}"
+    except Exception as e:
+      print(e)
+      sendmsg = f":hot_face: We're experiencing exceptionally high demand. Please try again."
+
+    # Reply message
+    say(sendmsg)
+
+def chatgpt_refresh():
+  while True:
+    time.sleep(60)
 
 if __name__ == "__main__":
+  thread = Thread(target=chatgpt_refresh)
+  thread.start()
   SocketModeHandler(app, SLACK_APP_TOKEN).start()
